@@ -92,9 +92,13 @@ class GameService
      */
     public function joinRoom(string $code, string $playerName, ?string $playerToken = null): array
     {
-        $playerName = trim($playerName);
+        $playerName = strip_tags(trim($playerName));
         if ($playerName === '') {
             throw new \InvalidArgumentException('Nama pemain tidak boleh kosong.');
+        }
+
+        if (mb_strlen($playerName) > 25) {
+            throw new \InvalidArgumentException('Nama pemain maksimal 25 karakter.');
         }
 
         $room = Room::where('code', strtoupper($code))->first();
@@ -235,16 +239,20 @@ class GameService
             $score = max(0, min(100, $score));
         }
 
-        // Store the locked answer
-        PlayerAnswer::create([
-            'room_id' => $room->id,
-            'player_id' => $player->id,
-            'room_question_id' => $currentQuestion->id,
-            'selected_answer' => $selectedCapital,
-            'is_correct' => $isCorrect,
-            'score_awarded' => $score,
-            'time_taken_seconds' => round($elapsed, 4),
-        ]);
+        // Store the locked answer with race-condition protection
+        try {
+            PlayerAnswer::create([
+                'room_id' => $room->id,
+                'player_id' => $player->id,
+                'room_question_id' => $currentQuestion->id,
+                'selected_answer' => $selectedCapital,
+                'is_correct' => $isCorrect,
+                'score_awarded' => $score,
+                'time_taken_seconds' => round($elapsed, 4),
+            ]);
+        } catch (\Illuminate\Database\QueryException) {
+            throw new \InvalidArgumentException('Jawaban Anda sudah terkunci.');
+        }
 
         // Update player stats
         $player->score += $score;
