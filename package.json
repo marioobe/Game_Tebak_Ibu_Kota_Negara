@@ -17,6 +17,9 @@
         "@laravel/multiplex": "^0.4.1"
     },
     "dependencies": {
-        "qrcode": "^1.5.4"
+        "leaflet": "^1.9.4",
+        "qrcode": "^1.5.4",
+        "topojson-client": "^3.1.0",
+        "world-atlas": "^2.0.2"
     }
 }

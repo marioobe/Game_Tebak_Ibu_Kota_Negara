@@ -96,12 +96,20 @@
                 <div id="timerBar" class="h-full bg-gradient-to-r from-emerald-500 via-amber-500 to-rose-500 transition-all duration-200" style="width: 100%;"></div>
             </div>
 
-            <!-- Question Prompt -->
-            <div class="py-4 text-center">
-                <p class="text-xs uppercase tracking-wider font-semibold text-slate-400 mb-2">Apa ibu kota dari negara:</p>
+            <!-- Question Prompt & Map -->
+            <div class="py-2 text-center space-y-2">
+                <p class="text-xs uppercase tracking-wider font-semibold text-slate-400">Apa ibu kota dari negara:</p>
                 <h2 id="countryNameDisplay" class="text-3xl sm:text-4xl font-black text-white tracking-tight">
                     Jepang
                 </h2>
+
+                <!-- Leaflet Country Boundary Map Container -->
+                <div class="w-full h-64 sm:h-72 rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 relative shadow-inner my-3">
+                    <div id="hostMap" class="w-full h-full"></div>
+                    <div class="absolute bottom-2 left-2 z-[400] px-2.5 py-1 rounded-lg bg-slate-950/80 backdrop-blur border border-slate-800 text-[10px] text-slate-400">
+                        🗺️ Batas Administrasi Negara (Offline Vector)
+                    </div>
+                </div>
             </div>
 
             <!-- Options Grid (Host sees correct answer highlighted) -->
@@ -221,8 +229,10 @@
         });
 
         let currentState = null;
-        let eventSource = null;
         let pollTimer = null;
+        let hostGameMap = null;
+        let currentCountryName = null;
+        let currentRevealed = false;
 
         function updateUI(state) {
             currentState = state;
@@ -260,10 +270,27 @@
                 playingSection.classList.remove('hidden');
                 endedSection.classList.add('hidden');
 
+                // Initialize map if not yet created
+                if (!hostGameMap && window.createCountryMap) {
+                    setTimeout(() => {
+                        hostGameMap = window.createCountryMap('hostMap');
+                        if (hostGameMap && state.question) {
+                            hostGameMap.focusCountry(state.question.country_name, state.question.is_time_up, state.question.correct_capital);
+                        }
+                    }, 50);
+                }
+
                 if (state.question) {
                     const q = state.question;
                     questionOrderBadge.textContent = `SOAL ${String(q.order).padStart(2, '0')} / ${String(q.total).padStart(2, '0')}`;
                     countryNameDisplay.textContent = q.country_name;
+
+                    // Update Leaflet Map boundary & capital marker
+                    if (hostGameMap && (currentCountryName !== q.country_name || currentRevealed !== q.is_time_up)) {
+                        currentCountryName = q.country_name;
+                        currentRevealed = q.is_time_up;
+                        hostGameMap.focusCountry(q.country_name, q.is_time_up, q.correct_capital);
+                    }
 
                     // Timer
                     const rem = Math.max(0, q.time_remaining);
@@ -384,26 +411,6 @@
             return div.innerHTML;
         }
 
-        // Connect SSE & REST Polling fallback
-        function connectEvents() {
-            if (eventSource) eventSource.close();
-
-            eventSource = new EventSource(`/api/rooms/${roomCode}/events?host_token=${encodeURIComponent(hostToken)}`);
-            eventSource.onmessage = (e) => {
-                try {
-                    const data = JSON.parse(e.data);
-                    updateUI(data);
-                } catch (err) {
-                    console.error('SSE JSON parse error', err);
-                }
-            };
-
-            eventSource.onerror = () => {
-                // SSE error / reconnecting: fallback poll
-                fetchState();
-            };
-        }
-
         async function fetchState() {
             try {
                 const res = await fetch(`/api/rooms/${roomCode}/state?host_token=${encodeURIComponent(hostToken)}`);
@@ -505,10 +512,9 @@
             }
         };
 
-        // Start real-time connections
+        // Start high-speed real-time polling (500ms)
         fetchState();
-        connectEvents();
-        pollTimer = setInterval(fetchState, 1500); // 1.5s background polling fallback
+        pollTimer = setInterval(fetchState, 500);
     });
 </script>
 @endsection

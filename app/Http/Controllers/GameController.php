@@ -271,6 +271,7 @@ class GameController extends Controller
 
     /**
      * Server-Sent Events (SSE) stream for real-time LAN communication.
+     * Yields immediate state without holding workers in long loops.
      */
     public function streamEvents(Request $request, string $code): StreamedResponse
     {
@@ -280,37 +281,24 @@ class GameController extends Controller
         $isHost = $room->isHost($hostToken);
 
         $response = new StreamedResponse(function () use ($room, $playerToken, $isHost) {
-            // Keep connection open for push events
-            $seconds = 0;
-            while ($seconds < 25) { // stream in chunks of 25s, browser EventSource reconnects automatically
-                if (connection_aborted()) {
-                    break;
-                }
-
-                $room->refresh();
-                $player = null;
-                if ($playerToken) {
-                    $player = Player::where('room_id', $room->id)
-                        ->where('player_token', $playerToken)
-                        ->first();
-                }
-
-                $state = $this->gameService->getRoomState($room, $player, $isHost);
-
-                echo 'data: ' . json_encode($state) . "\n\n";
-                if (ob_get_level() > 0) {
-                    ob_flush();
-                }
-                flush();
-
-                usleep(800000); // 800ms intervals for smooth countdown & instant answer feedback
-                $seconds++;
+            $player = null;
+            if ($playerToken) {
+                $player = Player::where('room_id', $room->id)
+                    ->where('player_token', $playerToken)
+                    ->first();
             }
+
+            $state = $this->gameService->getRoomState($room, $player, $isHost);
+            echo 'data: ' . json_encode($state) . "\n\n";
+            if (ob_get_level() > 0) {
+                ob_flush();
+            }
+            flush();
         });
 
         $response->headers->set('Content-Type', 'text/event-stream');
         $response->headers->set('Cache-Control', 'no-cache, no-transform');
-        $response->headers->set('Connection', 'keep-alive');
+        $response->headers->set('Connection', 'close');
         $response->headers->set('X-Accel-Buffering', 'no');
 
         return $response;

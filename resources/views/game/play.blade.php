@@ -72,12 +72,20 @@
                 <div id="playerTimerBar" class="h-full bg-gradient-to-r from-emerald-500 via-amber-500 to-rose-500 transition-all duration-200" style="width: 100%;"></div>
             </div>
 
-            <!-- Country Question -->
-            <div class="text-center py-2">
+            <!-- Country Question & Map -->
+            <div class="text-center py-1">
                 <p class="text-xs uppercase font-semibold text-slate-400 tracking-wider mb-1">Apa ibu kota dari negara:</p>
                 <h2 id="playerCountryName" class="text-2xl sm:text-3xl font-black text-white tracking-tight">
                     Jepang
                 </h2>
+
+                <!-- Leaflet Country Boundary Map -->
+                <div class="w-full h-44 sm:h-52 rounded-2xl overflow-hidden border border-slate-800 bg-slate-950 relative shadow-inner my-2">
+                    <div id="playerMap" class="w-full h-full"></div>
+                    <div class="absolute bottom-1.5 left-2 z-[400] px-2 py-0.5 rounded-md bg-slate-950/80 backdrop-blur border border-slate-800 text-[9px] text-slate-400">
+                        🗺️ Batas Wilayah Negara
+                    </div>
+                </div>
             </div>
 
             <!-- 4 Multiple Choice Options (Touch Friendly) -->
@@ -173,6 +181,9 @@
         let currentQuestionOrder = null;
         let selectedOption = null;
         let hasAnsweredCurrentQuestion = false;
+        let playerGameMap = null;
+        let currentCountryName = null;
+        let currentRevealed = false;
 
         function updateUI(state) {
             if (state.is_kicked) {
@@ -211,10 +222,27 @@
                 playerPlayingSection.classList.remove('hidden');
                 playerEndedSection.classList.add('hidden');
 
+                // Initialize player Leaflet map
+                if (!playerGameMap && window.createCountryMap) {
+                    setTimeout(() => {
+                        playerGameMap = window.createCountryMap('playerMap');
+                        if (playerGameMap && state.question) {
+                            playerGameMap.focusCountry(state.question.country_name, state.question.is_time_up, state.question.correct_capital);
+                        }
+                    }, 50);
+                }
+
                 if (state.question) {
                     const q = state.question;
                     playerQuestionOrder.textContent = `SOAL ${String(q.order).padStart(2, '0')} / ${String(q.total).padStart(2, '0')}`;
                     playerCountryName.textContent = q.country_name;
+
+                    // Update Leaflet Map boundary & capital marker pin
+                    if (playerGameMap && (currentCountryName !== q.country_name || currentRevealed !== q.is_time_up)) {
+                        currentCountryName = q.country_name;
+                        currentRevealed = q.is_time_up;
+                        playerGameMap.focusCountry(q.country_name, q.is_time_up, q.correct_capital);
+                    }
 
                     // Timer
                     const rem = Math.max(0, q.time_remaining);
@@ -393,24 +421,6 @@
             }
         };
 
-        // Real-Time SSE + Polling fallback
-        let eventSource = null;
-        function connectEvents() {
-            if (eventSource) eventSource.close();
-            eventSource = new EventSource(`/api/rooms/${roomCode}/events?player_token=${encodeURIComponent(playerToken)}`);
-            eventSource.onmessage = (e) => {
-                try {
-                    const data = JSON.parse(e.data);
-                    updateUI(data);
-                } catch (err) {
-                    console.error('SSE JSON parse error', err);
-                }
-            };
-            eventSource.onerror = () => {
-                fetchState();
-            };
-        }
-
         async function fetchState() {
             try {
                 const res = await fetch(`/api/rooms/${roomCode}/state?player_token=${encodeURIComponent(playerToken)}`);
@@ -423,9 +433,9 @@
             }
         }
 
+        // High-speed 500ms non-blocking polling
         fetchState();
-        connectEvents();
-        setInterval(fetchState, 1500); // 1.5s background polling fallback
+        setInterval(fetchState, 500);
     });
 </script>
 @endsection
